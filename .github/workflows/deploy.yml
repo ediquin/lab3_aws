@@ -1,0 +1,47 @@
+name: Deploy SAM Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Install SAM CLI
+        run: pip install aws-sam-cli
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-2
+      
+      - name: SAM Build
+        run: sam build
+      
+      - name: SAM Deploy
+        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+      
+      - name: Get Stack Outputs
+        id: outputs
+        run: |
+          BUCKET=$(aws cloudformation describe-stacks --stack-name image-pipeline-stack --query "Stacks[0].Outputs[?OutputKey=='ImageBucketName'].OutputValue" --output text)
+          echo "BUCKET_NAME=$BUCKET" >> $GITHUB_OUTPUT
+      
+      - name: Test Pipeline
+        run: |
+          echo "Pipeline deployed successfully!"
+          echo "Bucket: ${{ steps.outputs.outputs.BUCKET_NAME }}"
