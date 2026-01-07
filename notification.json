@@ -1,0 +1,14 @@
+{
+  "LambdaFunctionConfigurations": [{
+    "LambdaFunctionArn": "arn:aws:lambda:us-east-2:697220083242:function:image-ingest-function",
+    "Events": ["s3:ObjectCreated:*"],
+    "Filter": {
+      "Key": {
+        "FilterRules": [{
+          "Name": "prefix",
+          "Value": "incoming/"
+        }]
+      }
+    }
+  }]
+}

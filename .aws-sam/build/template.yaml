@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Image metadata extraction pipeline
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: python3.12
+    MemorySize: 512
+Resources:
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: image-pipeline-${AWS::AccountId}-${AWS::Region}
+  ImageQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: image-processing-queue
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 345600
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: image-ingest-function
+      CodeUri: IngestFunction
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          QUEUE_URL:
+            Ref: ImageQueue
+      Policies:
+      - S3ReadPolicy:
+          BucketName:
+            Ref: ImageBucket
+      - SQSSendMessagePolicy:
+          QueueName:
+            Fn::GetAtt:
+            - ImageQueue
+            - QueueName
+    Metadata:
+      SamResourceId: IngestFunction
+  ProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: image-processor-function
+      CodeUri: ProcessorFunction
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          BUCKET_NAME:
+            Ref: ImageBucket
+      Policies:
+      - S3ReadPolicy:
+          BucketName:
+            Ref: ImageBucket
+      - S3WritePolicy:
+          BucketName:
+            Ref: ImageBucket
+      - SQSPollerPolicy:
+          QueueName:
+            Fn::GetAtt:
+            - ImageQueue
+            - QueueName
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue:
+              Fn::GetAtt:
+              - ImageQueue
+              - Arn
+            BatchSize: 1
+    Metadata:
+      SamResourceId: ProcessorFunction
+Outputs:
+  ImageBucketName:
+    Description: S3 bucket name
+    Value:
+      Ref: ImageBucket
+  QueueURL:
+    Description: SQS Queue URL
+    Value:
+      Ref: ImageQueue
+  IngestFunctionArn:
+    Description: Ingest Lambda ARN
+    Value:
+      Fn::GetAtt:
+      - IngestFunction
+      - Arn

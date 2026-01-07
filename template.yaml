@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Image metadata extraction pipeline
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: python3.12
+    MemorySize: 512
+
+Resources:
+  # S3 Bucket (NO notifications)
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'image-pipeline-${AWS::AccountId}-${AWS::Region}'
+
+  # SQS Queue
+  ImageQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: image-processing-queue
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 345600
+
+  # Lambda 1: Ingest (NO S3 event yet)
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: image-ingest-function
+      CodeUri: ingest_function/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref ImageQueue
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ImageBucket
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ImageQueue.QueueName
+
+  # Lambda 2: Processor
+  ProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: image-processor-function
+      CodeUri: processor_function/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ImageBucket
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ImageBucket
+        - S3WritePolicy:
+            BucketName: !Ref ImageBucket
+        - SQSPollerPolicy:
+            QueueName: !GetAtt ImageQueue.QueueName
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ImageQueue.Arn
+            BatchSize: 1
+
+Outputs:
+  ImageBucketName:
+    Description: S3 bucket name
+    Value: !Ref ImageBucket
+  
+  QueueURL:
+    Description: SQS Queue URL
+    Value: !Ref ImageQueue
+  
+  IngestFunctionArn:
+    Description: Ingest Lambda ARN
+    Value: !GetAtt IngestFunction.Arn
