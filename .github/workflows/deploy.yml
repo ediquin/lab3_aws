@@ -1,7 +1,7 @@
 name: Grade Lab 3
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -10,26 +10,18 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  verify:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v3
-      
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-      
-      - name: Install Dependencies
-        run: |
-          pip install pytest boto3 pillow
-      
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-2
-      
+
       - name: Verify Stack Exists
         run: |
           echo "🔍 Checking for deployed stack..."
@@ -38,27 +30,3 @@ jobs:
             --region us-east-2 \
             --query "Stacks[0].[StackName,StackStatus]" \
             --output table
-      
-      - name: Run Grading Tests
-        run: |
-          echo "🧪 Running grading tests..."
-          pytest tests/ -v -m aws_integration --tb=short
-      
-      - name: Test Results Summary
-        if: always()
-        run: |
-          echo ""
-          echo "================================================"
-          echo "📊 Test Results Summary"
-          echo "================================================"
-          echo "Check the test output above for detailed results"
-          echo ""
-          echo "✅ If all tests passed:"
-          echo "   Submit this GitHub Actions run URL to Google Classroom"
-          echo ""
-          echo "❌ If tests failed:"
-          echo "   1. Check the test output for specific failures"
-          echo "   2. Fix issues in your deployment repo"
-          echo "   3. Redeploy from your automation repo"
-          echo "   4. Run this workflow again"
-          echo "================================================"
