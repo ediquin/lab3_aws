@@ -31,12 +31,14 @@ def lambda_handler(event, context):
         
         print(f"Processing: bucket={bucket}, key={key}, etag={etag}")
         
-        # Extract filename from key
-        filename = key.split('/')[-1]  # "incoming/cat.jpg" → "cat.jpg"
-        filename_without_ext = filename.rsplit('.', 1)[0]  # "cat.jpg" → "cat"
+        # Extract filename from key: "incoming/tiny.jpg" → "tiny.jpg"
+        filename = key.split('/')[-1]
         
-        # Generate metadata file path
-        metadata_key = f"metadata/{filename_without_ext}.json"
+        # Generate metadata file path: "tiny.jpg" → "metadata/tiny.jpg.json"
+        # CRITICAL: Keep the full filename including extension!
+        metadata_key = f"metadata/{filename}.json"
+        
+        print(f"Will create metadata at: {metadata_key}")
         
         # Check if metadata already exists (IDEMPOTENCY)
         if metadata_exists(bucket, metadata_key):
@@ -49,12 +51,12 @@ def lambda_handler(event, context):
             response = s3.get_object(Bucket=bucket, Key=key)
             image_data = response['Body'].read()
             
-            # Extract metadata (PASS bucket and key!)
+            # Extract metadata
             print(f"Extracting metadata...")
             metadata = extract_metadata(image_data, bucket, key, etag)
             
             # Save metadata to S3
-            print(f"Saving metadata to S3...")
+            print(f"Saving metadata to S3: {metadata_key}")
             s3.put_object(
                 Bucket=bucket,
                 Key=metadata_key,
@@ -62,10 +64,12 @@ def lambda_handler(event, context):
                 ContentType='application/json'
             )
             
-            print(f"Successfully processed: {key}")
+            print(f"✅ Successfully processed: {key} → {metadata_key}")
             
         except Exception as e:
-            print(f"Error processing {key}: {str(e)}")
+            print(f"❌ Error processing {key}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise  # Re-raise to keep message in queue for retry
     
     return {
@@ -80,6 +84,7 @@ def metadata_exists(bucket, key):
     """
     try:
         s3.head_object(Bucket=bucket, Key=key)
+        print(f"Found existing metadata: {key}")
         return True
     except s3.exceptions.ClientError as e:
         if e.response['Error']['Code'] == '404':
@@ -97,13 +102,14 @@ def extract_metadata(image_data, bucket, key, etag):
     
     # Basic metadata
     metadata = {
-        'source_bucket': bucket,      # NOW DEFINED! ✅
-        'source_key': key,            # ADDED! ✅
+        'source_bucket': bucket,
+        'source_key': key,
+        'etag': etag,
         'format': image.format,       # JPEG, PNG, etc.
         'mode': image.mode,           # RGB, RGBA, L, etc.
         'width': image.width,
         'height': image.height,
-        'file_size_bytes': len(image_data),  # RENAMED from size_bytes ✅
+        'file_size_bytes': len(image_data),
         'processed_at': datetime.utcnow().isoformat()
     }
     
