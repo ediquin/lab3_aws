@@ -1,16 +1,16 @@
-name: Deploy and Test SAM Pipeline
+name: Grade Lab 3
 
 on:
+  workflow_dispatch:  # Manual trigger only
   push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     
     steps:
@@ -22,7 +22,7 @@ jobs:
       
       - name: Install Dependencies
         run: |
-          pip install aws-sam-cli boto3 pytest pillow
+          pip install pytest boto3 pillow
       
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -30,113 +30,35 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-2
       
-      - name: SAM Build
-        run: sam build
-      
-      - name: SAM Deploy
+      - name: Verify Stack Exists
         run: |
-          sam deploy \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --stack-name image-pipeline-stack \
-            --capabilities CAPABILITY_IAM \
-            --region us-east-2
-      
-      - name: Get Stack Outputs
-        id: stack
-        run: |
-          echo "✅ Deployment complete!"
+          echo "🔍 Checking for deployed stack..."
           aws cloudformation describe-stacks \
             --stack-name image-pipeline-stack \
-            --query "Stacks[0].Outputs" \
+            --region us-east-2 \
+            --query "Stacks[0].[StackName,StackStatus]" \
             --output table
-          
-          BUCKET=$(aws cloudformation describe-stacks \
-            --stack-name image-pipeline-stack \
-            --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" \
-            --output text)
-          echo "BUCKET_NAME=$BUCKET" >> $GITHUB_OUTPUT
       
-      # 🔍 DEBUGGING: Check S3 Notification
-      - name: Verify S3 Event Notification
+      - name: Run Grading Tests
         run: |
-          echo "=== S3 Event Notifications ==="
-          aws s3api get-bucket-notification-configuration \
-            --bucket ${{ steps.stack.outputs.BUCKET_NAME }} \
-            --region us-east-2 | jq '.' || echo "❌ No notifications found"
-      
-      # 🔍 DEBUGGING: Manual test before running pytest
-      - name: Manual Pipeline Test
-        run: |
-          echo "🧪 Running manual pipeline test..."
-          
-          # Create test image
-          python3 -c "
-          from PIL import Image
-          img = Image.new('RGB', (10, 10), color='blue')
-          img.save('manual-test.jpg')
-          "
-          
-          # Upload
-          aws s3 cp manual-test.jpg s3://${{ steps.stack.outputs.BUCKET_NAME }}/incoming/manual-test.jpg
-          echo "✅ Uploaded manual-test.jpg to incoming/"
-          
-          # Wait
-          echo "⏳ Waiting 45 seconds for processing..."
-          sleep 45
-          
-          # Check results
-          echo ""
-          echo "=== S3 Contents ==="
-          echo "Incoming files:"
-          aws s3 ls s3://${{ steps.stack.outputs.BUCKET_NAME }}/incoming/ || echo "Empty"
-          echo ""
-          echo "Metadata files:"
-          aws s3 ls s3://${{ steps.stack.outputs.BUCKET_NAME }}/metadata/ || echo "Empty"
-          
-          # Try to download metadata
-          echo ""
-          echo "=== Checking for metadata file ==="
-          aws s3 cp s3://${{ steps.stack.outputs.BUCKET_NAME }}/metadata/manual-test.jpg.json - 2>/dev/null && echo "✅ Metadata exists!" || echo "❌ No metadata found"
-      
-      # 🔍 DEBUGGING: Check Lambda Logs
-      - name: Check Ingest Lambda Logs
-        if: always()
-        run: |
-          echo "=== Ingest Lambda Logs (last 15 minutes) ==="
-          aws logs tail /aws/lambda/image-ingest-function \
-            --region us-east-2 \
-            --since 15m \
-            --format short || echo "No logs available"
-      
-      - name: Check Processor Lambda Logs
-        if: always()
-        run: |
-          echo "=== Processor Lambda Logs (last 15 minutes) ==="
-          aws logs tail /aws/lambda/image-processor-function \
-            --region us-east-2 \
-            --since 15m \
-            --format short || echo "No logs available"
-      
-      # 🔍 DEBUGGING: Check SQS
-      - name: Check SQS Queue Status
-        if: always()
-        run: |
-          QUEUE_URL=$(aws cloudformation describe-stacks \
-            --stack-name image-pipeline-stack \
-            --query "Stacks[0].Outputs[?OutputKey=='QueueURL'].OutputValue" \
-            --output text)
-          
-          echo "=== SQS Queue Attributes ==="
-          aws sqs get-queue-attributes \
-            --queue-url $QUEUE_URL \
-            --attribute-names All \
-            --region us-east-2 \
-            --query 'Attributes.{Messages:ApproximateNumberOfMessages,InFlight:ApproximateNumberOfMessagesNotVisible,Delayed:ApproximateNumberOfMessagesDelayed}' \
-            --output table || echo "Cannot retrieve queue stats"
-      
-      # 🧪 Run actual tests
-      - name: Run Pytest Tests
-        run: |
-          echo "🧪 Running pytest tests..."
+          echo "🧪 Running grading tests..."
           pytest tests/ -v -m aws_integration --tb=short
+      
+      - name: Test Results Summary
+        if: always()
+        run: |
+          echo ""
+          echo "================================================"
+          echo "📊 Test Results Summary"
+          echo "================================================"
+          echo "Check the test output above for detailed results"
+          echo ""
+          echo "✅ If all tests passed:"
+          echo "   Submit this GitHub Actions run URL to Google Classroom"
+          echo ""
+          echo "❌ If tests failed:"
+          echo "   1. Check the test output for specific failures"
+          echo "   2. Fix issues in your deployment repo"
+          echo "   3. Redeploy from your automation repo"
+          echo "   4. Run this workflow again"
+          echo "================================================"
