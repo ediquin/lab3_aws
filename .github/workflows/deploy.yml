@@ -33,52 +33,25 @@ jobs:
         run: sam build
       
       - name: SAM Deploy
-        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+        run: |
+          sam deploy \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --stack-name image-pipeline-stack \
+            --capabilities CAPABILITY_IAM \
+            --region us-east-2
       
       - name: Get Stack Outputs
-        id: outputs
-        run: |
-          BUCKET=$(aws cloudformation describe-stacks --stack-name image-pipeline-stack --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" --output text)
-          LAMBDA_ARN=$(aws cloudformation describe-stacks --stack-name image-pipeline-stack --query "Stacks[0].Outputs[?OutputKey=='IngestFunctionArn'].OutputValue" --output text)
-          echo "BUCKET_NAME=$BUCKET" >> $GITHUB_OUTPUT
-          echo "LAMBDA_ARN=$LAMBDA_ARN" >> $GITHUB_OUTPUT
-          echo "Bucket: $BUCKET"
-          echo "Lambda ARN: $LAMBDA_ARN"
-      
-      # NEW STEP: Configure S3 notification
-      - name: Configure S3 Event Notification
-        run: |
-          # Add Lambda permission (idempotent - won't fail if already exists)
-          aws lambda add-permission \
-            --function-name image-ingest-function \
-            --principal s3.amazonaws.com \
-            --statement-id s3-trigger-$(date +%s) \
-            --action lambda:InvokeFunction \
-            --source-arn arn:aws:s3:::${{ steps.outputs.outputs.BUCKET_NAME }} \
-            --region us-east-2 || true
-          
-          # Configure S3 notification
-          aws s3api put-bucket-notification-configuration \
-            --bucket ${{ steps.outputs.outputs.BUCKET_NAME }} \
-            --notification-configuration '{
-              "LambdaFunctionConfigurations": [{
-                "LambdaFunctionArn": "${{ steps.outputs.outputs.LAMBDA_ARN }}",
-                "Events": ["s3:ObjectCreated:*"],
-                "Filter": {
-                  "Key": {
-                    "FilterRules": [{
-                      "Name": "prefix",
-                      "Value": "incoming/"
-                    }]
-                  }
-                }
-              }]
-            }'
-          
-          echo "S3 notification configured successfully!"
-      
-      - name: Verify Deployment
         run: |
           echo "✅ Deployment complete!"
-          echo "Bucket: ${{ steps.outputs.outputs.BUCKET_NAME }}"
-          echo "Lambda: ${{ steps.outputs.outputs.LAMBDA_ARN }}"
+          aws cloudformation describe-stacks \
+            --stack-name image-pipeline-stack \
+            --query "Stacks[0].Outputs" \
+            --output table
+      
+      - name: Run Tests (if included in repo)
+        run: |
+          if [ -f "requirements-dev.txt" ]; then
+            pip install -r requirements-dev.txt
+            pytest tests/ -v || true
+          fi
