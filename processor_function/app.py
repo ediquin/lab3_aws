@@ -49,9 +49,9 @@ def lambda_handler(event, context):
             response = s3.get_object(Bucket=bucket, Key=key)
             image_data = response['Body'].read()
             
-            # Extract metadata
+            # Extract metadata (PASS bucket and key!)
             print(f"Extracting metadata...")
-            metadata = extract_metadata(image_data, filename, etag)
+            metadata = extract_metadata(image_data, bucket, key, etag)
             
             # Save metadata to S3
             print(f"Saving metadata to S3...")
@@ -62,7 +62,7 @@ def lambda_handler(event, context):
                 ContentType='application/json'
             )
             
-            print(f"Successfully processed: {filename}")
+            print(f"Successfully processed: {key}")
             
         except Exception as e:
             print(f"Error processing {key}: {str(e)}")
@@ -87,7 +87,7 @@ def metadata_exists(bucket, key):
         else:
             raise
 
-def extract_metadata(image_data, filename, etag):
+def extract_metadata(image_data, bucket, key, etag):
     """
     Extract metadata from image bytes
     Returns a dictionary with image information
@@ -97,13 +97,13 @@ def extract_metadata(image_data, filename, etag):
     
     # Basic metadata
     metadata = {
-        'filename': filename,
-        'etag': etag,
-        'format': image.format,  # JPEG, PNG, etc.
-        'mode': image.mode,      # RGB, RGBA, L, etc.
+        'source_bucket': bucket,      # NOW DEFINED! ✅
+        'source_key': key,            # ADDED! ✅
+        'format': image.format,       # JPEG, PNG, etc.
+        'mode': image.mode,           # RGB, RGBA, L, etc.
         'width': image.width,
         'height': image.height,
-        'size_bytes': len(image_data),
+        'file_size_bytes': len(image_data),  # RENAMED from size_bytes ✅
         'processed_at': datetime.utcnow().isoformat()
     }
     

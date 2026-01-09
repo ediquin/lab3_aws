@@ -9,11 +9,21 @@ Globals:
     MemorySize: 512
 
 Resources:
-  # S3 Bucket (NO notifications)
+  # S3 Bucket (with proper notification configuration)
   ImageBucket:
     Type: AWS::S3::Bucket
+    DependsOn: IngestFunctionPermission  # CRITICAL: Wait for permission first
     Properties:
       BucketName: !Sub 'image-pipeline-${AWS::AccountId}-${AWS::Region}'
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt IngestFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: incoming/
 
   # SQS Queue
   ImageQueue:
@@ -23,7 +33,7 @@ Resources:
       VisibilityTimeout: 180
       MessageRetentionPeriod: 345600
 
-  # Lambda 1: Ingest (NO S3 event yet)
+  # Lambda 1: Ingest Function
   IngestFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -35,11 +45,20 @@ Resources:
           QUEUE_URL: !Ref ImageQueue
       Policies:
         - S3ReadPolicy:
-            BucketName: !Ref ImageBucket
+            BucketName: !Sub 'image-pipeline-${AWS::AccountId}-${AWS::Region}'
         - SQSSendMessagePolicy:
             QueueName: !GetAtt ImageQueue.QueueName
 
-  # Lambda 2: Processor
+  # Permission for S3 to invoke Lambda
+  IngestFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IngestFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::image-pipeline-${AWS::AccountId}-${AWS::Region}'
+
+  # Lambda 2: Processor Function
   ProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -51,9 +70,9 @@ Resources:
           BUCKET_NAME: !Ref ImageBucket
       Policies:
         - S3ReadPolicy:
-            BucketName: !Ref ImageBucket
+            BucketName: !Sub 'image-pipeline-${AWS::AccountId}-${AWS::Region}'
         - S3WritePolicy:
-            BucketName: !Ref ImageBucket
+            BucketName: !Sub 'image-pipeline-${AWS::AccountId}-${AWS::Region}'
         - SQSPollerPolicy:
             QueueName: !GetAtt ImageQueue.QueueName
       Events:
@@ -75,3 +94,7 @@ Outputs:
   IngestFunctionArn:
     Description: Ingest Lambda ARN
     Value: !GetAtt IngestFunction.Arn
+  
+  ProcessorFunctionArn:
+    Description: Processor Lambda ARN
+    Value: !GetAtt ProcessorFunction.Arn
